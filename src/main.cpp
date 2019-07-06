@@ -1,130 +1,81 @@
+// C library headers
 #include <stdio.h>
 #include <string.h>
-#include <cstdlib>
-#include <termios.h>
-#include <unistd.h>
-#include <sys/signal.h>
-#include <unistd.h>
-#include <fcntl.h>
 
-static struct termios oldt, newt;
-int serial_descriptor;
+// Linux headers
+#include <fcntl.h> // Contains file controls like O_RDWR
+#include <errno.h> // Error integer and strerror() function
+#include <termios.h> // Contains POSIX terminal control definitions
+#include <unistd.h> // write(), read(), close()
 
-void clean_and_exit(int code);
+int main() {
+// Open the serial port. Change device path as needed (currently set to an standard FTDI USB-UART cable type device)
+    int serial_port = open("/dev/ttyTHS2", O_RDWR);
 
-extern "C" void quit_signal_handler(int signum);
-extern "C" void uart_signal_handler(int signum);
+// Create new termios struc, we call it 'tty' for convention
+    struct termios tty;
+    memset(&tty, 0, sizeof tty);
 
-int main(int argc, char **argv) {
-    // help variables
-    int c;
+// Read in existing settings, and handle any error
+    if (tcgetattr(serial_port, &tty) != 0) {
+        printf("Error %i from tcgetattr: %s\n", errno, strerror(errno));
+    }
 
-    // tty settings
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
+    tty.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
+    tty.c_cflag |= CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
+    tty.c_cflag |= CS8; // 8 bits per byte (most common)
+    tty.c_cflag &= ~CRTSCTS; // Disable RTS/CTS hardware flow control (most common)
+    tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
 
-    newt.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    tty.c_lflag &= ~ICANON;
+    tty.c_lflag &= ~ECHO; // Disable echo
+    tty.c_lflag &= ~ECHOE; // Disable erasure
+    tty.c_lflag &= ~ECHONL; // Disable new-line echo
+    tty.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
+    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
+                     ICRNL); // Disable any special handling of received bytes
 
-    // Open serial port
-    serial_descriptor = open("/dev/ttyTHS2", O_RDWR | O_NDELAY | O_NONBLOCK);
-    if (serial_descriptor == -1) {
-        printf("Could not open serial port on /dev/ttyTHS2!\n");
-        clean_and_exit(-1);
-    } else fcntl(serial_descriptor, F_SETFL, 0);
+    tty.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
+    tty.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
+// tty.c_oflag &= ~OXTABS; // Prevent conversion of tabs to spaces (NOT PRESENT ON LINUX)
+// tty.c_oflag &= ~ONOEOT; // Prevent removal of C-d chars (0x004) in output (NOT PRESENT ON LINUX)
 
-    // Configure serial port
-    struct sigaction saio;
-    saio.sa_handler = uart_signal_handler;
-    saio.sa_flags = 0;
-    saio.sa_restorer = NULL;
-    sigaction(SIGIO, &saio, NULL);
-
-    fcntl(serial_descriptor, F_SETFL, FNDELAY);         // Make fd wait
-    fcntl(serial_descriptor, F_SETOWN, getpid());       // Allow to receive SIGIO
-    fcntl(serial_descriptor, F_SETFL, O_ASYNC);       // Make fd asynchronous
-
-    // UART settings
-    struct termios termAttr;
-    tcgetattr(serial_descriptor, &termAttr);
-    termAttr.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
-    termAttr.c_cflag &= ~CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
-    termAttr.c_cflag |= CS8; // 8 bits per byte (most common)
-    termAttr.c_cflag &= ~CRTSCTS; // Disable RTS/CTS hardware flow control (most common)
-    termAttr.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
-
-    termAttr.c_lflag &= ~ICANON;
-    termAttr.c_lflag &= ~ECHO; // Disable echo
-    termAttr.c_lflag &= ~ECHOE; // Disable erasure
-    termAttr.c_lflag &= ~ECHONL; // Disable new-line echo
-    termAttr.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
-    termAttr.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
-    termAttr.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
-                          ICRNL); // Disable any special handling of received bytes
-
-    termAttr.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
-    termAttr.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
-// termAttr.c_oflag &= ~OXTABS; // Prevent conversion of tabs to spaces (NOT PRESENT ON LINUX)
-// termAttr.c_oflag &= ~ONOEOT; // Prevent removal of C-d chars (0x004) in output (NOT PRESENT ON LINUX)
-
-    termAttr.c_cc[VTIME] = 10;    // Wait for up to 1s (10 deciseconds), returning as soon as any data is received.
-    termAttr.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = 1;    // Wait for up to 1s (10 deciseconds), returning as soon as any data is received.
+    tty.c_cc[VMIN] = 8;
 
 // Set in/out baud rate to be 9600
-    cfsetispeed(&termAttr, B115200);
-    cfsetospeed(&termAttr, B115200);
+    cfsetispeed(&tty, B4000000);
+    cfsetospeed(&tty, B4000000);
 
-    /* Flush anything already in the serial buffer */
-    tcflush(serial_descriptor, TCIFLUSH);
-    tcflush(STDIN_FILENO, TCIFLUSH);
-
-    //Kill signal handler
-    signal(SIGINT, quit_signal_handler);
-
-    float out[6] = {1, 2, 3, 4, 5, 6};
-    // loop
-    while ((c = getchar()) != 'q') {
-        if (c == '0') {
-            printf("Writing command 0...\n\r");
-            write(serial_descriptor, out, 6 * sizeof(float));
-        } else if (c == '1') {
-            printf("Writing command 1...\n\r");
-            write(serial_descriptor, out, 6 * sizeof(float));
-        } else if (c == 'q') {
-            printf("Writing command q...\n\r");
-            write(serial_descriptor, out, 6 * sizeof(float));
-        } else if (c > 0)
-            printf("Press 1 or 0 or q.\n\r");
+// Save tty settings, also checking for error
+    if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
+        printf("Error %i from tcsetattr: %s\n", errno, strerror(errno));
     }
 
-    // cleanup
-    printf("Will end now!\n");
-    clean_and_exit(0);
-}
+    float out[9] = {102150, 98.1351, 5147, 14.1262, 15.77, 43124.91, 11214.1243, 1.22, 2.30};
+    while (1) {
+// Write to serial port
+        unsigned char msg[] = {'H', 'e', 'l', 'l', 'o', '\r'};
+        write(serial_port, out, 9 * sizeof(float));
 
-void clean_and_exit(int code) {
-    // close serial
-    close(serial_descriptor);
+// Allocate memory for read buffer, set size according to your needs
+        float read_buf[2] = {0};
+//memset(&read_buf, '\0', sizeof(read_buf);
 
-    // tty reset settings
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+// Read bytes. The behaviour of read() (e.g. does it block?,
+// how long does it block for?) depends on the configuration
+// settings above, specifically VMIN and VTIME
+        int num_bytes = read(serial_port, read_buf, 2 * sizeof(float));
 
-    // exit
-    std::exit(code);
-}
+// n is the number of bytes read. n may be 0 if no bytes were received, and can also be -1 to signal an error.
+        if (num_bytes < 0) {
+            printf("Error reading: %s", strerror(errno));
+        }
 
-void quit_signal_handler(int signum) {
-    printf("Will end now!\n");
-    clean_and_exit(0);
-}
-
-void uart_signal_handler(int signum) {
-    float buffer[2];
-//    memset(buffer, '\0', 1024);
-    if ((read(serial_descriptor, buffer, 2 * sizeof(float))) > 0) {
-        if (buffer[0] == 'q') {
-            printf("Will end now!\n");
-            clean_and_exit(0);
-        } else printf("Got command = %f, %f\n", buffer[0], buffer[1]);
+// Here we assume we received ASCII data, but you might be sending raw bytes (in that case, don't try and
+// print it to the screen like this!)
+        printf("Read %i bytes. Received message: %f, %f\n", num_bytes, read_buf[0], read_buf[1]);
     }
+    close(serial_port);
 }

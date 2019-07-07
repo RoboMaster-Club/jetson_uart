@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
     struct termios termAttr;
     tcgetattr(serial_descriptor, &termAttr);
     termAttr.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
-    termAttr.c_cflag &= ~CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
+    termAttr.c_cflag |= CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
     termAttr.c_cflag |= CS8; // 8 bits per byte (most common)
     termAttr.c_cflag &= ~CRTSCTS; // Disable RTS/CTS hardware flow control (most common)
     termAttr.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
@@ -67,8 +67,8 @@ int main(int argc, char **argv) {
 // termAttr.c_oflag &= ~OXTABS; // Prevent conversion of tabs to spaces (NOT PRESENT ON LINUX)
 // termAttr.c_oflag &= ~ONOEOT; // Prevent removal of C-d chars (0x004) in output (NOT PRESENT ON LINUX)
 
-    termAttr.c_cc[VTIME] = 10;    // Wait for up to 1s (10 deciseconds), returning as soon as any data is received.
-    termAttr.c_cc[VMIN] = 0;
+    termAttr.c_cc[VTIME] = 1;    // Wait for up to 1s (10 deciseconds), returning as soon as any data is received.
+    termAttr.c_cc[VMIN] = 8;
 
 // Set in/out baud rate to be 9600
     cfsetispeed(&termAttr, B115200);

@@ -45,8 +45,8 @@ int main() {
     tty.c_cc[VMIN] = 8;
 
 // Set in/out baud rate to be 9600
-    cfsetispeed(&tty, B4000000);
-    cfsetospeed(&tty, B4000000);
+    cfsetispeed(&tty, B115200);
+    cfsetospeed(&tty, B115200);
 
 // Save tty settings, also checking for error
     if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
